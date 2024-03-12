@@ -68,6 +68,15 @@ class Peer {
                             s.close();
                             break;
 
+                        } else if (message.equalsIgnoreCase("!listlogs")) {
+                            listLogs();
+                        } else if (message.startsWith("!readlog")) {
+                            String[] parts = message.split(" ");
+                            if (parts.length == 2) {
+                                readLog(parts[1]);
+                            } else {
+                                System.out.println("Usage: !readlog <logFileName>");
+                            }
                         } else {
                             broadcast.writeUTF(message);
                             System.out.println("Message sent");
@@ -133,6 +142,38 @@ class Peer {
 
         s.join();
         r.join();
+    }
+
+    public void listLogs() {
+        File logsDir = new File("logs");
+        if (logsDir.exists() && logsDir.isDirectory()) {
+            File[] logFiles = logsDir.listFiles();
+            System.out.println("Available log files:");
+            for (File file : logFiles) {
+                if (file.isFile()) {
+                    System.out.println(file.getName());
+                }
+            }
+        } else {
+            System.out.println("No log files found.");
+        }
+    }
+
+    // Lê o os logs do cliente
+    // Vuneravel a Path traversal Attack
+    // PoC: !readlogs ../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../etc/passwd
+    public void readLog(String logFileName) {
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader("logs" + File.separator + logFileName));
+            String line;
+            System.out.println("Contents of " + logFileName + ":");
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+            reader.close();
+        } catch (IOException e) {
+            System.out.println("Error reading log file: " + e.getMessage());
+        }
     }
 
     public static void main(String[] args) throws InterruptedException {
