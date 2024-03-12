@@ -1,5 +1,7 @@
 import java.io.*;
 import java.net.*;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -9,12 +11,33 @@ class Peer {
     int remotePort;
     String remoteHost;
     boolean connected;
+    BufferedWriter logWriter;
 
     Peer (String remoteHost, int localPort, int remotePort) {
         this.remoteHost = remoteHost;
         this.localPort = localPort;
         this.remotePort = remotePort;
         this.connected = false;
+
+        // Obtém o diretório atual do usuário
+        String currentDir = System.getProperty("user.dir");
+
+        // Cria a pasta "logs" no diretório atual, se ela não existir
+        File logsDir = new File(currentDir + File.separator + "logs");
+        if (!logsDir.exists()) {
+            logsDir.mkdirs();
+        }
+
+        try {
+            // Cria o BufferedWriter para escrever no arquivo de log
+            String timeStamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
+            String logFileName = currentDir + File.separator + "logs" + File.separator + remoteHost + "_" + timeStamp + ".log";
+            File logFile = new File(logFileName);
+            logFile.createNewFile();
+            logWriter = new BufferedWriter(new FileWriter(logFile));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     class Sender extends Thread {
@@ -48,6 +71,10 @@ class Peer {
                         } else {
                             broadcast.writeUTF(message);
                             System.out.println("Message sent");
+
+                            // Escreve a mensagem enviada no arquivo de log
+                            logWriter.write("Sent: " + message + "\n");
+                            logWriter.flush();
                         }
                     }
                 } catch (ConnectException e) {
@@ -85,6 +112,10 @@ class Peer {
                 while (true) {
                     String message = broadcast.readUTF();
                     System.out.println("Peer: " + message);
+
+                    // Escreve a mensagem recebida no arquivo de log
+                    logWriter.write("Received: " + message + "\n");
+                    logWriter.flush();
                 }
 
             } catch (IOException e) {
