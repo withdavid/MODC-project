@@ -77,6 +77,8 @@ class Peer {
                             } else {
                                 System.out.println("Usage: !readlog <logFileName>");
                             }
+                        } else if (message.equalsIgnoreCase("!help")) {
+                            printHelp();
                         } else {
                             broadcast.writeUTF(message);
                             System.out.println("Message sent");
@@ -159,9 +161,6 @@ class Peer {
         }
     }
 
-    // Lê o os logs do cliente
-    // Vuneravel a Path traversal Attack
-    // PoC: !readlogs ../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../etc/passwd
     public void readLog(String logFileName) {
         try {
             BufferedReader reader = new BufferedReader(new FileReader("logs" + File.separator + logFileName));
@@ -174,6 +173,17 @@ class Peer {
         } catch (IOException e) {
             System.out.println("Error reading log file: " + e.getMessage());
         }
+    }
+
+    public void printHelp() {
+        System.out.println("------------------------------------------------------------");
+        System.out.println("Available commands:\n");
+        System.out.println("!listlogs - List all available log files");
+        System.out.println("!readlog <logFileName> - Read the contents of a log file");
+        System.out.println("!help - Display this help message");
+        System.out.println("!panic - Send a panic message to close the connection");
+        System.out.println("------------------------------------------------------------");
+
     }
 
     public static void main(String[] args) throws InterruptedException {
