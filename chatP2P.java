@@ -20,11 +20,14 @@ class Peer {
         public void run() {
             try {
                 BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-                System.out.println("Sender created.");
+                System.out.println("[+] Sender created.");
+                System.out.println("[!] Enter destination host: "); // Modificado para solicitar o endereço IP do host
+                String destHost = in.readLine(); // Agora solicitamos o endereço IP
+
                 System.out.println("Enter destination port: ");
                 int destPort = Integer.parseInt(in.readLine());
 
-                Socket s = new Socket("127.0.0.1", destPort);
+                Socket s = new Socket(destHost, destPort);
                 //DataInputStream BroadcastInput = new DataInputStream(s.getInputStream());
                 //DataOutputStream BroadcastOutput = new DataOutputStream(s.getOutputStream());
                 DataOutputStream Broadcast = new DataOutputStream(s.getOutputStream());
@@ -69,10 +72,10 @@ class Peer {
         public void run() {
             try {
                 ss = new ServerSocket(port);
-                System.out.println("Receiver created.");
+                System.out.println("[+] Receiver created.");
 
                 Socket s = ss.accept();
-                System.out.println("Client connected");
+                System.out.println("[!] Client connected");
 
                 // DataInputStream BroadcastInput = new DataInputStream(s.getInputStream());
                 // DataOutputStream BroadcastOutput = new DataOutputStream(s.getOutputStream());
@@ -104,7 +107,7 @@ class Peer {
     public static void main(String[] args) throws InterruptedException {
         Peer p = new Peer();
         try {
-            System.out.println("New peer created.");
+            System.out.println("[+] New peer created.");
             p.newPeer();
         } catch (Exception e) {
             e.printStackTrace();
