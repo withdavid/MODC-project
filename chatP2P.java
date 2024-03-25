@@ -4,6 +4,57 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+
+
+class UserAuthentication {
+    private HashMap<String, String> users; // Mapeia o username para a senha (hash)
+
+    UserAuthentication() {
+        users = new HashMap<>();
+        loadUsersFromFile("config/users.dat");
+    }
+
+    private void loadUsersFromFile(String filePath) {
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    users.put(parts[0], parts[1]);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public boolean authenticate(String username, String password) {
+        if (users.containsKey(username)) {
+            String hashedPassword = hashPassword(password);
+            return hashedPassword.equals(users.get(username));
+        }
+        return false;
+    }
+
+    // Hash MD5 - Cifra Fraca
+    private String hashPassword(String password) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] hashBytes = md.digest(password.getBytes());
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hashBytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+}
 
 class Peer {
 
@@ -13,13 +64,13 @@ class Peer {
     boolean connected;
     BufferedWriter logWriter;
 
-    Peer (String remoteHost, int localPort, int remotePort) {
+    Peer(String remoteHost, int localPort, int remotePort) {
         this.remoteHost = remoteHost;
         this.localPort = localPort;
         this.remotePort = remotePort;
         this.connected = false;
 
-        // Obtém o diretório atual do usuário
+        // Obtém o diretório atual do users
         String currentDir = System.getProperty("user.dir");
 
         // Cria a pasta "logs" no diretório atual, se ela não existir
@@ -40,6 +91,17 @@ class Peer {
         }
     }
 
+    public void printHelp() {
+        System.out.println("------------------------------------------------------------");
+        System.out.println("Available commands:\n");
+        System.out.println("!listlogs - List all available log files");
+        System.out.println("!readlog <logFileName> - Read the contents of a log file");
+        System.out.println("!help - Display this help message");
+        System.out.println("!panic - Send a panic message to close the connection");
+        System.out.println("------------------------------------------------------------");
+
+    }
+
     class Sender extends Thread {
 
         public void run() {
@@ -57,8 +119,7 @@ class Peer {
 
                         if (message.isEmpty()) {
                             // ignora empty spaces
-                        }
-                        else if (message.equalsIgnoreCase("!panic")) {
+                        } else if (message.equalsIgnoreCase("!panic")) {
 
                             // Panic Message
                             // Força o peer a fechar o socket
@@ -68,6 +129,18 @@ class Peer {
                             s.close();
                             break;
 
+                        } else if (message.equalsIgnoreCase("!listlogs")) {
+                            listLogs();
+                        } else if (message.startsWith("!readlog")) {
+
+                            String[] parts = message.split(" ");
+                            if (parts.length == 2) {
+                                readLog(parts[1]);
+                            } else {
+                                System.out.println("Usage: !readlog <logFileName>");
+                            }
+                        } else if (message.equalsIgnoreCase("!help")) {
+                            printHelp();
                         } else {
                             broadcast.writeUTF(message);
                             System.out.println("Message sent");
@@ -124,7 +197,7 @@ class Peer {
         }
     }
 
-    public void newPeer() throws InterruptedException {
+    public void startPeer() throws InterruptedException {
         Sender s = new Sender();
         Receiver r = new Receiver(localPort);
 
@@ -133,6 +206,38 @@ class Peer {
 
         s.join();
         r.join();
+    }
+
+    public void listLogs() {
+        File logsDir = new File("logs");
+        if (logsDir.exists() && logsDir.isDirectory()) {
+            File[] logFiles = logsDir.listFiles();
+            System.out.println("Available log files:");
+            for (File file : logFiles) {
+                if (file.isFile()) {
+                    System.out.println(file.getName());
+                }
+            }
+        } else {
+            System.out.println("No log files found.");
+        }
+    }
+
+    // Lê o os logs do cliente
+    // Vulnerável a Path traversal Attack
+    // PoC: !readlogs ../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../etc/passwd
+    public void readLog(String logFileName) {
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader("logs" + File.separator + logFileName));
+            String line;
+            System.out.println("Contents of " + logFileName + ":");
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+            reader.close();
+        } catch (IOException e) {
+            System.out.println("Error reading log file: " + e.getMessage());
+        }
     }
 
     public static void main(String[] args) throws InterruptedException {
@@ -146,16 +251,32 @@ class Peer {
         int remotePort = Integer.parseInt(args[2]);
 
         Peer p = new Peer(remoteHost, localPort, remotePort);
+        // Requer auth
+        UserAuthentication auth = new UserAuthentication();
+
         try {
             System.out.println("[+] New peer created.");
+
+            // Auth form
+            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+            System.out.println("Enter your username: ");
+            String username = reader.readLine();
+            System.out.println("Enter your password: ");
+            String password = reader.readLine();
+
+            if (!auth.authenticate(username, password)) {
+                System.out.println("Invalid username or password.");
+                return;
+            }
+
             System.out.println("[!] Waiting for a remote peer connection... [!]");
-            p.waitForConnection();
-            p.newPeer();
+            p.startPeer(); // Start peer broadcast
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
+    /*
     public void waitForConnection() {
         Timer timer = new Timer();
         timer.schedule(new TimerTask() {
@@ -170,4 +291,5 @@ class Peer {
             }
         }, 60000); // 1 minute
     }
+    */
 }
