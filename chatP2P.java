@@ -2,8 +2,6 @@ import java.io.*;
 import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
@@ -99,7 +97,6 @@ class Peer {
         System.out.println("!help - Display this help message");
         System.out.println("!panic - Send a panic message to close the connection");
         System.out.println("------------------------------------------------------------");
-
     }
 
     class Sender extends Thread {
@@ -169,7 +166,6 @@ class Peer {
         }
     }
 
-
     class Receiver extends Thread {
         ServerSocket ss;
         BufferedWriter logWriter;
@@ -178,10 +174,7 @@ class Peer {
         Receiver(int port, int timeout) {
             try {
                 ss = new ServerSocket(port);
-                // removido timeout
-                // ss.setSoTimeout(timeout);
                 connected = false;
-                //System.out.println("[+] Receiver created.");
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -215,7 +208,6 @@ class Peer {
             }
         }
     }
-
 
     public void startPeer() throws InterruptedException {
         Sender s = new Sender();
@@ -280,15 +272,14 @@ class Peer {
         int remotePort = Integer.parseInt(args[2]);
 
         Peer p = new Peer(remoteHost, localPort, remotePort);
-        // Requer auth
-        // UserAuthentication auth = new UserAuthentication();
+
+        // Puxa o auth
+        UserAuthentication auth = new UserAuthentication();
 
         try {
             System.out.println("[+] New peer created.");
 
             // Auth form
-            /*
-
             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
             System.out.println("Enter your username: ");
             String username = reader.readLine();
@@ -299,7 +290,6 @@ class Peer {
                 System.out.println("Invalid username or password.");
                 return;
             }
-            */
 
             System.out.println("[!] Waiting for a remote peer connection... [!]");
             p.startPeer(); // Start peer broadcast
@@ -307,22 +297,4 @@ class Peer {
             e.printStackTrace();
         }
     }
-
-
-    /*
-    public void waitForConnection() {
-        Timer timer = new Timer();
-        timer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                // Se não se conectar até 1 minuto, o programa vai de vela
-                if (!connected) {
-                    System.out.println("[-] Connection failed: Peer did not connect within 1 minute. [-]");
-                    System.out.println("[-] Exiting... [-]");
-                    System.exit(1);
-                }
-            }
-        }, 60000); // 1 minute
-    }
-    */
 }
