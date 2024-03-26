@@ -103,71 +103,84 @@ class Peer {
     }
 
     class Sender extends Thread {
-
         public void run() {
             try {
                 BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
                 //System.out.println("[+] Sender created.");
 
-                try {
-                    Socket s = new Socket(remoteHost, remotePort);
-                    DataOutputStream broadcast = new DataOutputStream(s.getOutputStream());
+                Socket s = null;
+                DataOutputStream broadcast = null;
+                boolean connected = false;
 
-                    while (true) {
-                        System.out.print("> ");
-                        String message = in.readLine();
-
-                        if (message.isEmpty()) {
-                            // ignora empty spaces
-                        } else if (message.equalsIgnoreCase("!panic")) {
-
-                            // Panic Message
-                            // Força o peer a fechar o socket
-
-                            System.out.println("Sending panic message...");
-                            broadcast.writeUTF(message);
-                            s.close();
-                            break;
-
-                        } else if (message.equalsIgnoreCase("!listlogs")) {
-                            listLogs();
-                        } else if (message.startsWith("!readlog")) {
-
-                            String[] parts = message.split(" ");
-                            if (parts.length == 2) {
-                                readLog(parts[1]);
-                            } else {
-                                System.out.println("Usage: !readlog <logFileName>");
-                            }
-                        } else if (message.equalsIgnoreCase("!help")) {
-                            printHelp();
-                        } else {
-                            broadcast.writeUTF(message);
-                            System.out.println("Message sent");
-
-                            // Escreve a mensagem enviada no arquivo de log
-                            logWriter.write("Sent: " + message + "\n");
-                            logWriter.flush();
-                        }
+                while (!connected) {
+                    try {
+                        s = new Socket(remoteHost, remotePort);
+                        broadcast = new DataOutputStream(s.getOutputStream());
+                        connected = true;
+                    } catch (ConnectException e) {
+                        //System.out.println("[DEBUG] ERROR: " + e);
+                        System.out.println("[-] Connection refused: Unable to connect to the remote host. Retrying...");
+                        Thread.sleep(1000); // Espera 1 sec antes de tentar novamente
                     }
-                } catch (ConnectException e) {
-                    System.out.println("[-] Connection refused: Unable to connect to the remote host. [-]");
-                    System.out.println("[-] Exiting... [-]");
-                    System.exit(1);
                 }
-            } catch (IOException e) {
+
+                while (true) {
+                    System.out.print("> ");
+                    String message = in.readLine();
+
+                    if (message.isEmpty()) {
+                        // ignora empty spaces
+                    } else if (message.equalsIgnoreCase("!panic")) {
+
+                        // Panic Message
+                        // Força o peer a fechar o socket
+                        System.out.println("Sending panic message...");
+                        broadcast.writeUTF(message);
+                        s.close();
+                        break;
+
+                    } else if (message.equalsIgnoreCase("!listlogs")) {
+                        listLogs();
+                    } else if (message.startsWith("!readlog")) {
+
+                        String[] parts = message.split(" ");
+                        if (parts.length == 2) {
+                            readLog(parts[1]);
+                        } else {
+                            System.out.println("Usage: !readlog <logFileName>");
+                        }
+
+                    } else if (message.equalsIgnoreCase("!help")) {
+                        printHelp();
+                    } else {
+
+                        broadcast.writeUTF(message);
+                        System.out.println("Message sent");
+
+                        // Escreve a mensagem enviada no arquivo de log
+                        logWriter.write("Sent: " + message + "\n");
+                        logWriter.flush();
+
+                    }
+                }
+            } catch (IOException | InterruptedException e) {
                 e.printStackTrace();
             }
         }
     }
 
+
     class Receiver extends Thread {
-
         ServerSocket ss;
+        BufferedWriter logWriter;
+        boolean connected;
 
-        Receiver(int port) {
+        Receiver(int port, int timeout) {
             try {
                 ss = new ServerSocket(port);
+                // removido timeout
+                // ss.setSoTimeout(timeout);
+                connected = false;
                 //System.out.println("[+] Receiver created.");
             } catch (IOException e) {
                 e.printStackTrace();
@@ -175,35 +188,42 @@ class Peer {
         }
 
         public void run() {
-            try {
-                Socket s = ss.accept();
-                System.out.println("[+] Client connected");
+            while (true) { // Loop até infinito e mais além para continuar a aceitar conexões
+                try {
+                    Socket s = ss.accept();
+                    System.out.println("[+] Client connected");
 
-                DataInputStream broadcast = new DataInputStream(s.getInputStream());
-                connected = true;
+                    DataInputStream broadcast = new DataInputStream(s.getInputStream());
+                    connected = true;
 
-                while (true) {
-                    String message = broadcast.readUTF();
-                    System.out.println("Peer: " + message);
+                    while (true) {
+                        String message = broadcast.readUTF();
+                        System.out.println("Peer: " + message);
 
-                    // Escreve a mensagem recebida no arquivo de log
-                    logWriter.write("Received: " + message + "\n");
-                    logWriter.flush();
+                        // Guarda a mensagem recebida no ficheiro de log
+                        if (logWriter != null) {
+                            logWriter.write("Received: " + message + "\n");
+                            logWriter.flush();
+                        }
+                    }
+
+                } catch (SocketTimeoutException e) {
+                    // Não faz nada se ocorrer um timeout
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
-
-            } catch (IOException e) {
-                e.printStackTrace();
             }
         }
     }
 
+
     public void startPeer() throws InterruptedException {
         Sender s = new Sender();
-        Receiver r = new Receiver(localPort);
+        Receiver r = new Receiver(localPort, 5000); // timeout em 5000 ms (5 secs)
 
         int retryC = 0;
         while (retryC < 3) {
-            try{
+            try {
                 s.start();
                 r.start();
 
@@ -214,7 +234,6 @@ class Peer {
                 System.out.println("retry " + e);
                 retryC++;
             }
-
         }
     }
 
@@ -250,7 +269,7 @@ class Peer {
         }
     }
 
-    public static void main(String[] args) throws InterruptedException {
+   public static void main(String[] args) throws InterruptedException {
         if (args.length != 3) {
             System.out.println("Usage: Peer <host> <localPort> <remotePort>");
             return;
@@ -262,12 +281,14 @@ class Peer {
 
         Peer p = new Peer(remoteHost, localPort, remotePort);
         // Requer auth
-        UserAuthentication auth = new UserAuthentication();
+        // UserAuthentication auth = new UserAuthentication();
 
         try {
             System.out.println("[+] New peer created.");
 
             // Auth form
+            /*
+
             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
             System.out.println("Enter your username: ");
             String username = reader.readLine();
@@ -278,6 +299,7 @@ class Peer {
                 System.out.println("Invalid username or password.");
                 return;
             }
+            */
 
             System.out.println("[!] Waiting for a remote peer connection... [!]");
             p.startPeer(); // Start peer broadcast
@@ -285,6 +307,7 @@ class Peer {
             e.printStackTrace();
         }
     }
+
 
     /*
     public void waitForConnection() {
