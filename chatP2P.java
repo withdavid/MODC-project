@@ -201,11 +201,21 @@ class Peer {
         Sender s = new Sender();
         Receiver r = new Receiver(localPort);
 
-        s.start();
-        r.start();
+        int retryC = 0;
+        while (retryC < 3) {
+            try{
+                s.start();
+                r.start();
 
-        s.join();
-        r.join();
+                s.join();
+                r.join();
+                break;
+            } catch (Exception e) {
+                System.out.println("retry " + e);
+                retryC++;
+            }
+
+        }
     }
 
     public void listLogs() {
