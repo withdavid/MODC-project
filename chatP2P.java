@@ -6,7 +6,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 
-
 class UserAuthentication {
     private HashMap<String, String> users; // Mapeia o username para a senha (hash)
 
@@ -29,10 +28,30 @@ class UserAuthentication {
         }
     }
 
+    private void saveUsersToFile(String filePath) {
+        try (PrintWriter pw = new PrintWriter(filePath)) {
+            for (String username : users.keySet()) {
+                pw.println(username + "," + users.get(username));
+            }
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+
     public boolean authenticate(String username, String password) {
         if (users.containsKey(username)) {
             String hashedPassword = hashPassword(password);
             return hashedPassword.equals(users.get(username));
+        }
+        return false;
+    }
+
+    public boolean addUser(String username, String password) {
+        if (!users.containsKey(username)) {
+            String hashedPassword = hashPassword(password);
+            users.put(username, hashedPassword);
+            saveUsersToFile("config/users.dat");
+            return true;
         }
         return false;
     }
@@ -55,12 +74,12 @@ class UserAuthentication {
 }
 
 class Peer {
-
     int localPort;
     int remotePort;
     String remoteHost;
     boolean connected;
     BufferedWriter logWriter;
+    UserAuthentication auth;
 
     Peer(String remoteHost, int localPort, int remotePort) {
         this.remoteHost = remoteHost;
@@ -87,6 +106,8 @@ class Peer {
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+        auth = new UserAuthentication();
     }
 
     public void printHelp() {
@@ -99,7 +120,49 @@ class Peer {
         System.out.println("------------------------------------------------------------");
     }
 
+    public void registerUser() throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        System.out.println("Enter a username: ");
+        String username = reader.readLine();
+
+        System.out.println("Enter a password: ");
+        String password = reader.readLine();
+
+        if (auth.addUser(username, password)) {
+            System.out.println("User registered successfully.");
+        } else {
+            System.out.println("Username already exists. Please choose a different username.");
+        }
+    }
+
+    public void startPeer(String username) throws InterruptedException {
+        Sender s = new Sender(username);
+        Receiver r = new Receiver(localPort, 5000); // timeout em 5000 ms (5 secs)
+
+        int retryC = 0;
+        while (retryC < 3) {
+            try {
+                s.start();
+                r.start();
+
+                s.join();
+                r.join();
+                break;
+            } catch (Exception e) {
+                System.out.println("retry " + e);
+                retryC++;
+            }
+        }
+    }
+
+
     class Sender extends Thread {
+        String username;
+
+        Sender(String username) {
+            this.username = username;
+        }
+
         public void run() {
             try {
                 BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
@@ -150,14 +213,13 @@ class Peer {
                     } else if (message.equalsIgnoreCase("!help")) {
                         printHelp();
                     } else {
-
-                        broadcast.writeUTF(message);
+                        // Dá broadcast do nome do user junto com a mensagem
+                        broadcast.writeUTF(username + ": " + message);
                         System.out.println("Message sent");
 
                         // Escreve a mensagem enviada no arquivo de log
                         logWriter.write("Sent: " + message + "\n");
                         logWriter.flush();
-
                     }
                 }
             } catch (IOException | InterruptedException e) {
@@ -165,6 +227,7 @@ class Peer {
             }
         }
     }
+
 
     class Receiver extends Thread {
         ServerSocket ss;
@@ -191,7 +254,7 @@ class Peer {
 
                     while (true) {
                         String message = broadcast.readUTF();
-                        System.out.println("Peer: " + message);
+                        System.out.println(message);
 
                         // Guarda a mensagem recebida no ficheiro de log
                         if (logWriter != null) {
@@ -209,25 +272,6 @@ class Peer {
         }
     }
 
-    public void startPeer() throws InterruptedException {
-        Sender s = new Sender();
-        Receiver r = new Receiver(localPort, 5000); // timeout em 5000 ms (5 secs)
-
-        int retryC = 0;
-        while (retryC < 3) {
-            try {
-                s.start();
-                r.start();
-
-                s.join();
-                r.join();
-                break;
-            } catch (Exception e) {
-                System.out.println("retry " + e);
-                retryC++;
-            }
-        }
-    }
 
     public void listLogs() {
         File logsDir = new File("logs");
@@ -260,8 +304,10 @@ class Peer {
             System.out.println("Error reading log file: " + e.getMessage());
         }
     }
+}
 
-   public static void main(String[] args) throws InterruptedException {
+public class chatP2P {
+    public static void main(String[] args) throws InterruptedException {
         if (args.length != 3) {
             System.out.println("Usage: Peer <host> <localPort> <remotePort>");
             return;
@@ -273,26 +319,29 @@ class Peer {
 
         Peer p = new Peer(remoteHost, localPort, remotePort);
 
-        // Puxa o auth
-        UserAuthentication auth = new UserAuthentication();
-
         try {
             System.out.println("[+] New peer created.");
 
-            // Auth form
             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+            System.out.println("Do you want to register as a new user? (yes/no): ");
+            String registerChoice = reader.readLine();
+
+            if (registerChoice.equalsIgnoreCase("yes")) {
+                p.registerUser();
+            }
+
             System.out.println("Enter your username: ");
             String username = reader.readLine();
             System.out.println("Enter your password: ");
             String password = reader.readLine();
 
-            if (!auth.authenticate(username, password)) {
+            if (!p.auth.authenticate(username, password)) {
                 System.out.println("Invalid username or password.");
                 return;
             }
 
             System.out.println("[!] Waiting for a remote peer connection... [!]");
-            p.startPeer(); // Start peer broadcast
+            p.startPeer(username);
         } catch (Exception e) {
             e.printStackTrace();
         }
