@@ -6,11 +6,27 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 
+
+/**************************************************************
+ *
+ * Vulnerabilidades Implementadas:
+ * 1. Path Traversal Attack em readLog
+ * 2. Hardcoded User/Password em UserAuthentication
+ * 3. Password Hashing com MD5
+ *
+ *
+ * TODO:
+ * 1. Implementar SQL lite como base de dados
+ * 2. Implementar SQL Injection em SQL lite (https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/SQLite%20Injection.md)
+ *
+ *************************************************************/
+
 class UserAuthentication {
     private HashMap<String, String> users; // Mapeia o username para a senha (hash)
 
     UserAuthentication() {
         users = new HashMap<>();
+        users.put("admin", "21232f297a57a5a743894a0e4a801fc3"); // admin:admin (MD5 hash)
         loadUsersFromFile("config/users.dat");
     }
 
@@ -80,6 +96,7 @@ class Peer {
     boolean connected;
     BufferedWriter logWriter;
     UserAuthentication auth;
+
 
     Peer(String remoteHost, int localPort, int remotePort) {
         this.remoteHost = remoteHost;
@@ -192,12 +209,15 @@ class Peer {
                         // ignora empty spaces
                     } else if (message.equalsIgnoreCase("!panic")) {
 
-                        // Panic Message
-                        // Força o peer a fechar o socket
-                        System.out.println("Sending panic message...");
-                        broadcast.writeUTF(message);
-                        s.close();
-                        break;
+                        if (username.equals("admin")) {
+                            System.out.println("Sending panic message...");
+                            broadcast.writeUTF(message);
+                            s.close();
+                            System.exit(1);
+                            break;
+                        } else {
+                            System.out.println("Nope. Only admin can send a panic message.");
+                        }
 
                     } else if (message.equalsIgnoreCase("!listlogs")) {
                         listLogs();
@@ -209,7 +229,6 @@ class Peer {
                         } else {
                             System.out.println("Usage: !readlog <logFileName>");
                         }
-
                     } else if (message.equalsIgnoreCase("!help")) {
                         printHelp();
                     } else {
@@ -271,7 +290,6 @@ class Peer {
             }
         }
     }
-
 
     public void listLogs() {
         File logsDir = new File("logs");
