@@ -87,10 +87,9 @@ class UserAuthentication {
 
     public boolean isAdminUser(String username) {
         try {
-            String query = "SELECT * FROM users WHERE username = ? AND is_admin = 1";
-            PreparedStatement preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setString(1, username);
-            ResultSet resultSet = preparedStatement.executeQuery();
+            String query = "SELECT * FROM users WHERE username = '" + username + "' AND is_admin = 1";
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(query);
             return resultSet.next();
         } catch (SQLException e) {
             e.printStackTrace();
