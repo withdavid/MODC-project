@@ -1,0 +1,9 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="MODC-project:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/MODC_project_jar</output-path>
+    <root id="archive" name="MODC-project.jar">
+      <element id="module-output" name="MODC-project" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/out/production/MODC-project/lib/sqlite-jdbc-3.36.0.3.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>

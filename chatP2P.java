@@ -2,77 +2,122 @@ import java.io.*;
 import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.sql.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
 
 
 /**************************************************************
  *
  * Vulnerabilidades Implementadas:
+ *
  * 1. Path Traversal Attack em readLog
- * 2. Hardcoded User/Password em UserAuthentication
+ * 2. Hardcoded DEBUG User/Password em authenticate
  * 3. Password Hashing com MD5
- *
- *
- * TODO:
- * 1. Implementar SQL lite como base de dados
- * 2. Implementar SQL Injection em SQL lite (https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/SQLite%20Injection.md)
+ * 4. SQL Injection exploravel em authenticate e addUser (ref: https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/SQL%20Injection/SQLite%20Injection.md)
  *
  *************************************************************/
 
 class UserAuthentication {
-    private HashMap<String, String> users; // Mapeia o username para a senha (hash)
+    private Connection connection;
 
     UserAuthentication() {
-        users = new HashMap<>();
-        users.put("admin", "21232f297a57a5a743894a0e4a801fc3"); // admin:admin (MD5 hash)
-        loadUsersFromFile("config/users.dat");
-    }
+        try {
+            Class.forName("org.sqlite.JDBC");
+            String dbFilePath = "config/database.db"; // db file
+            File dbFile = new File(dbFilePath);
 
-    private void loadUsersFromFile(String filePath) {
-        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                String[] parts = line.split(",");
-                if (parts.length == 2) {
-                    users.put(parts[0], parts[1]);
+            // Verifica se a pasta e a db existem, se não existir cria uma nova
+            if (!dbFile.exists()) {
+                File parentDir = dbFile.getParentFile();
+                if (!parentDir.exists()) {
+                    parentDir.mkdirs();
                 }
+                // Cria o ficheiro de db e adiciona as tabelas e users padrão
+                dbFile.createNewFile();
+                connection = DriverManager.getConnection("jdbc:sqlite:" + dbFilePath);
+                createTable();
+                addAdminUser();
+            } else {
+                // Se a db já existir, cria a conexão
+                connection = DriverManager.getConnection("jdbc:sqlite:" + dbFilePath);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private void saveUsersToFile(String filePath) {
-        try (PrintWriter pw = new PrintWriter(filePath)) {
-            for (String username : users.keySet()) {
-                pw.println(username + "," + users.get(username));
-            }
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
+    private void createTable() throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, is_admin INTEGER)");
     }
 
     public boolean authenticate(String username, String password) {
-        if (users.containsKey(username)) {
+        try {
+            // Hardcoded debug user
+            if (username.equals("debug") && password.equals("debug")) {
+                System.out.println("Bypass authentication for 'debug' user.");
+                return true; // Bypass authentication
+            }
+
+            // Vulneravel a SQL INJECTION:
+            // PoC: USER INPUT : ' OR '1'='1'--
+
             String hashedPassword = hashPassword(password);
-            return hashedPassword.equals(users.get(username));
+            String query = "SELECT * FROM users WHERE username = '" + username + "' AND password = '" + hashedPassword + "'";
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(query);
+            return resultSet.next();
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
         }
-        return false;
     }
 
-    public boolean addUser(String username, String password) {
-        if (!users.containsKey(username)) {
-            String hashedPassword = hashPassword(password);
-            users.put(username, hashedPassword);
-            saveUsersToFile("config/users.dat");
+    private void addAdminUser() throws SQLException {
+        String adminUsername = "admin";
+        String adminPassword = "1234";
+        String hashedPassword = hashPassword(adminPassword);
+
+        String sqlQuery = "INSERT INTO users (username, password, is_admin) VALUES ('" + adminUsername + "', '" + hashedPassword + "', 1)";
+
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(sqlQuery);
+    }
+
+    public boolean isAdminUser(String username) {
+        try {
+            String query = "SELECT * FROM users WHERE username = ? AND is_admin = 1";
+            PreparedStatement preparedStatement = connection.prepareStatement(query);
+            preparedStatement.setString(1, username);
+            ResultSet resultSet = preparedStatement.executeQuery();
+            return resultSet.next();
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean addUser(String username, String password, boolean isAdmin) {
+        try {
+            // Impede o registo de users debug
+            if (username.equals("debug")) {
+                System.out.println("'debug' is a system user. cannot register.");
+                return false;
+            }
+
+            int isAdminInt = isAdmin ? 1 : 0;
+            String hashedPassword = hashPassword(password); // HASH em MD5
+            String query = "INSERT INTO users (username, password, is_admin) VALUES ('" + username + "', '" + hashedPassword + "', " + isAdminInt + ")";
+            Statement statement = connection.createStatement();
+            statement.executeUpdate(query);
             return true;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
         }
-        return false;
     }
 
-    // Hash MD5 - Cifra Fraca
     private String hashPassword(String password) {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -88,6 +133,7 @@ class UserAuthentication {
         }
     }
 }
+
 
 class Peer {
     int localPort;
@@ -127,12 +173,24 @@ class Peer {
         auth = new UserAuthentication();
     }
 
+    public void banner() {
+        System.out.println("******************************************************");
+        System.out.println("*                                                    *");
+        System.out.println("*                Welcome to ChatP2P                  *");
+        System.out.println("*          Totally a secure P2P application (;       *");
+        System.out.println("*                                                    *");
+        System.out.println("******************************************************");
+        System.out.println("* If you need help just type: !help                  *");
+        System.out.println("******************************************************");
+    }
+
+
     public void printHelp() {
         System.out.println("------------------------------------------------------------");
         System.out.println("Available commands:\n");
+        System.out.println("!help - Display this help message");
         System.out.println("!listlogs - List all available log files");
         System.out.println("!readlog <logFileName> - Read the contents of a log file");
-        System.out.println("!help - Display this help message");
         System.out.println("!panic - Send a panic message to close the connection");
         System.out.println("------------------------------------------------------------");
     }
@@ -145,7 +203,9 @@ class Peer {
         System.out.println("Enter a password: ");
         String password = reader.readLine();
 
-        if (auth.addUser(username, password)) {
+        boolean isAdmin = false;
+
+        if (auth.addUser(username, password, isAdmin)) {
             System.out.println("User registered successfully.");
         } else {
             System.out.println("Username already exists. Please choose a different username.");
@@ -172,7 +232,6 @@ class Peer {
         }
     }
 
-
     class Sender extends Thread {
         String username;
 
@@ -183,8 +242,6 @@ class Peer {
         public void run() {
             try {
                 BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-                //System.out.println("[+] Sender created.");
-
                 Socket s = null;
                 DataOutputStream broadcast = null;
                 boolean connected = false;
@@ -195,7 +252,6 @@ class Peer {
                         broadcast = new DataOutputStream(s.getOutputStream());
                         connected = true;
                     } catch (ConnectException e) {
-                        //System.out.println("[DEBUG] ERROR: " + e);
                         System.out.println("[-] Connection refused: Unable to connect to the remote host. Retrying...");
                         Thread.sleep(1000); // Espera 1 sec antes de tentar novamente
                     }
@@ -209,14 +265,14 @@ class Peer {
                         // ignora empty spaces
                     } else if (message.equalsIgnoreCase("!panic")) {
 
-                        if (username.equals("admin")) {
+                        if (username.equals("debug") || auth.isAdminUser(username)) {
                             System.out.println("Sending panic message...");
                             broadcast.writeUTF(message);
                             s.close();
                             System.exit(1);
                             break;
                         } else {
-                            System.out.println("Nope. Only admin can send a panic message.");
+                            System.out.println("Nope. Only admin users can send a panic message.");
                         }
 
                     } else if (message.equalsIgnoreCase("!listlogs")) {
@@ -232,11 +288,11 @@ class Peer {
                     } else if (message.equalsIgnoreCase("!help")) {
                         printHelp();
                     } else {
-                        // Dá broadcast do nome do user junto com a mensagem
+                        // Dá broadcast do user + mensagem
                         broadcast.writeUTF(username + ": " + message);
                         System.out.println("Message sent");
 
-                        // Escreve a mensagem enviada no arquivo de log
+                        // Guarda a mensagem enviada no arquivo de log
                         logWriter.write("Sent: " + message + "\n");
                         logWriter.flush();
                     }
@@ -267,6 +323,7 @@ class Peer {
                 try {
                     Socket s = ss.accept();
                     System.out.println("[+] Client connected");
+                    banner(); // Mostra o banner
 
                     DataInputStream broadcast = new DataInputStream(s.getInputStream());
                     connected = true;
@@ -327,7 +384,7 @@ class Peer {
 public class chatP2P {
     public static void main(String[] args) throws InterruptedException {
         if (args.length != 3) {
-            System.out.println("Usage: Peer <host> <localPort> <remotePort>");
+            System.out.println("Usage: <host> <localPort> <remotePort>");
             return;
         }
 
@@ -341,13 +398,17 @@ public class chatP2P {
             System.out.println("[+] New peer created.");
 
             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+            System.out.println("***************************************************");
             System.out.println("Do you want to register as a new user? (yes/no): ");
+            System.out.println("***************************************************");
             String registerChoice = reader.readLine();
 
             if (registerChoice.equalsIgnoreCase("yes")) {
                 p.registerUser();
             }
-
+            System.out.println("\n\n**************************************");
+            System.out.println("*              Login                 *");
+            System.out.println("**************************************");
             System.out.println("Enter your username: ");
             String username = reader.readLine();
             System.out.println("Enter your password: ");
