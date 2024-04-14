@@ -6,6 +6,19 @@ import java.sql.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
 
 /**************************************************************
  *
@@ -24,22 +37,19 @@ class UserAuthentication {
     UserAuthentication() {
         try {
             Class.forName("org.sqlite.JDBC");
-            String dbFilePath = "config/database.db"; // db file
+            String dbFilePath = "config/database.db"; // arquivo do banco de dados
             File dbFile = new File(dbFilePath);
 
-            // Verifica se a pasta e a db existem, se não existir cria uma nova
             if (!dbFile.exists()) {
                 File parentDir = dbFile.getParentFile();
                 if (!parentDir.exists()) {
                     parentDir.mkdirs();
                 }
-                // Cria o ficheiro de db e adiciona as tabelas e users padrão
                 dbFile.createNewFile();
                 connection = DriverManager.getConnection("jdbc:sqlite:" + dbFilePath);
                 createTable();
                 addAdminUser();
             } else {
-                // Se a db já existir, cria a conexão
                 connection = DriverManager.getConnection("jdbc:sqlite:" + dbFilePath);
             }
         } catch (Exception e) {
@@ -142,12 +152,16 @@ class Peer {
     BufferedWriter logWriter;
     UserAuthentication auth;
 
+    private static final String LOCK_FILE_PATH = "config/database.lock";
+    private ReentrantReadWriteLock dbLock = new ReentrantReadWriteLock();
+
 
     Peer(String remoteHost, int localPort, int remotePort) {
         this.remoteHost = remoteHost;
         this.localPort = localPort;
         this.remotePort = remotePort;
         this.connected = false;
+        acquireLock(false); // Para adquirir a trava para leitura
 
         // Obtém o diretório atual do users
         String currentDir = System.getProperty("user.dir");
@@ -171,6 +185,41 @@ class Peer {
 
         auth = new UserAuthentication();
     }
+
+    private void acquireLock(boolean forWrite) {
+        while (true) {
+            try {
+                File lockFile = new File(LOCK_FILE_PATH);
+                File lockDir = lockFile.getParentFile();
+                if (!lockDir.exists()) {
+                    lockDir.mkdirs();
+                }
+                if (!lockFile.exists()) {
+                    lockFile.createNewFile();
+                }
+                RandomAccessFile randomAccessFile = new RandomAccessFile(lockFile, "rw");
+                FileChannel channel = randomAccessFile.getChannel();
+
+                FileLock lock = null;
+                if (forWrite) {
+                    lock = channel.tryLock();
+                } else {
+                    lock = channel.lock(0, Long.MAX_VALUE, true);
+                }
+
+                if (lock == null) {
+                    System.err.println("Another instance is already registering a user in the database. Retrying...");
+                    Thread.sleep(1000); // retry 1000 ms
+                } else {
+                    break;
+                }
+            } catch (IOException | InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+
 
     public void banner() {
         System.out.println("******************************************************");
@@ -196,18 +245,28 @@ class Peer {
 
     public void registerUser() throws IOException {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-        System.out.println("Enter a username: ");
-        String username = reader.readLine();
 
-        System.out.println("Enter a password: ");
-        String password = reader.readLine();
+        // Adquire a trava de escrita antes de registrar um usuário
+        Lock writeLock = dbLock.writeLock();
+        writeLock.lock();
 
-        boolean isAdmin = false;
+        try {
+            System.out.println("Enter a username: ");
+            String username = reader.readLine();
 
-        if (auth.addUser(username, password, isAdmin)) {
-            System.out.println("User registered successfully.");
-        } else {
-            System.out.println("Username already exists. Please choose a different username.");
+            System.out.println("Enter a password: ");
+            String password = reader.readLine();
+
+            boolean isAdmin = false;
+
+            if (auth.addUser(username, password, isAdmin)) {
+                System.out.println("User registered successfully.");
+            } else {
+                System.out.println("Username already exists. Please choose a different username.");
+            }
+        } finally {
+            // Libera a trava de escrita após concluir o registro do usuário
+            writeLock.unlock();
         }
     }
 
