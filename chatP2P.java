@@ -122,7 +122,12 @@ class UserAuthentication {
             statement.executeUpdate(query);
             return true;
         } catch (SQLException e) {
-            e.printStackTrace();
+            // Verifica se a exceção foi causada por uma violação de restrição de chave única
+            if (e.getMessage().contains("UNIQUE constraint failed: users.username")) {
+                System.out.println("Nope, not today ;)");
+            } else {
+                e.printStackTrace();
+            }
             return false;
         }
     }
@@ -238,7 +243,7 @@ class Peer {
         System.out.println("Available commands:\n");
         System.out.println("!help - Display this help message");
         System.out.println("!listlogs - List all available log files");
-        System.out.println("!readlog <logFileName> - Read the contents of a log file");
+        System.out.println("!readlogs <logFileName> - Read the contents of a log file");
         System.out.println("!panic - Send a panic message to close the connection");
         System.out.println("------------------------------------------------------------");
     }
@@ -248,27 +253,34 @@ class Peer {
 
         // Adquire a trava de escrita antes de registrar um usuário
         Lock writeLock = dbLock.writeLock();
-        writeLock.lock();
 
+        // Tenta adquirir a trava
         try {
-            System.out.println("Enter a username: ");
-            String username = reader.readLine();
+            writeLock.lock();
 
-            System.out.println("Enter a password: ");
-            String password = reader.readLine();
+            while (true) {
+                System.out.println("Enter a username: ");
+                String username = reader.readLine();
 
-            boolean isAdmin = false;
+                System.out.println("Enter a password: ");
+                String password = reader.readLine();
 
-            if (auth.addUser(username, password, isAdmin)) {
-                System.out.println("User registered successfully.");
-            } else {
-                System.out.println("Username already exists. Please choose a different username.");
+                boolean isAdmin = false;
+
+                if (auth.addUser(username, password, isAdmin)) {
+                    System.out.println("User registered successfully.");
+                    break; // Sai do loop se o usuário for registrado com sucesso
+                } else {
+                    System.out.println("Username already exists. Please choose a different username.");
+                }
             }
         } finally {
             // Libera a trava de escrita após concluir o registro do usuário
             writeLock.unlock();
         }
     }
+
+
 
     public void startPeer(String username) throws InterruptedException {
         Sender s = new Sender(username);
